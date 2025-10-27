@@ -1,18 +1,22 @@
+import { sendWelcomeEmail } from "../emails/emailHandles.js";
+import { ENV } from "../lib/env.js";
 import { gernerateToken } from "../lib/utils.js";
 import User from "../models/Users.model.js";
 import bcrypt from "bcryptjs";
+import cloudinary from "../lib/cloundinary.js";
 
 //[POST] /api/auth/signup
 export const signup = async (req, res) => {
   const { email, password, fullName } = req.body;
+
   try {
-    if (!email.trim() || !password.trim() || !fullName.trim()) {
+    if (!email || !password || !fullName) {
       return res.status(400).json({
         message: "All fields are required",
       });
     }
 
-    if (password.length.trim() < 6) {
+    if (password.length < 6) {
       return res.status(400).json({
         message: "Password must be at least 6 characters",
       });
@@ -41,9 +45,25 @@ export const signup = async (req, res) => {
     });
 
     if (newUser) {
-      const savedUser = await newUser();
+      const savedUser = await newUser.save();
       gernerateToken(savedUser._id, res);
-      res.sendStatus(204);
+
+      res.status(201).json({
+        _id: newUser._id,
+        fullName: newUser.fullName,
+        email: newUser.email,
+        profilePic: newUser.profilePic,
+      });
+
+      try {
+        await sendWelcomeEmail(
+          savedUser.email,
+          savedUser.fullName,
+          ENV.CLIENT_URL
+        );
+      } catch (error) {
+        console.error("Failer to send welcome email", error);
+      }
     } else {
       res.status(400).json({ message: "Invalid user data" });
     }
@@ -98,6 +118,30 @@ export const logout = async (req, res) => {
     res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {
     console.error("Error in logout controller:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  try {
+    const { profilePic } = req.body;
+    if (!profilePic) {
+      return res.status(400).json({ message: "Profile picture is required" });
+    }
+
+    const userId = req.user._id;
+    const uploadResponse = await cloudinary.uploader.upload(profilePic);
+    const updatedUser = await User.findById(
+      userId,
+      {
+        profilePic: uploadResponse.secure_url,
+      },
+      { new: true }
+    );
+
+    res.status(200).json(updatedUser);
+  } catch (error) {
+    console.error("Error in updateProfile controller : ", error);
     res.status(500).json({ message: "Internal server error" });
   }
 };
